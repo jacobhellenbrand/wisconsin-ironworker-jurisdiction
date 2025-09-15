@@ -98,6 +98,41 @@
     document.getElementById('routeBtn').onclick = checkOrRoute;
   })();
 
+    document.getElementById('routeBtn').onclick = checkOrRoute;
+
+// --- auto-run from query string ---
+const qs = new URLSearchParams(location.search);
+// decode "+" as spaces for CRM URLs
+const dec = v => v ? v.replace(/\+/g, ' ') : '';
+
+const addr  = dec(qs.get('address') || qs.get('addr')); // single-address mode
+const fromQ = dec(qs.get('from') || '');
+const toQ   = dec(qs.get('to')   || '');
+const latQ  = qs.get('lat');
+const lngQ  = qs.get('lng');
+
+// Fill inputs
+if (fromQ) document.getElementById('from').value = fromQ;
+if (toQ)   document.getElementById('to').value   = toQ;
+
+// If only lat/lng provided, use them in the "from" box
+if (!fromQ && !toQ && latQ && lngQ) {
+  document.getElementById('from').value = `${latQ},${lngQ}`;
+}
+
+// If only address provided, use it in the "from" box
+if (!fromQ && !toQ && addr) {
+  document.getElementById('from').value = addr;
+}
+
+// Auto-run if anything was passed
+if (fromQ && toQ) {
+  checkOrRoute();        // route mode
+} else if (addr || (latQ && lngQ)) {
+  checkOrRoute();        // single-point check
+}
+
+
   // ---------- helpers ----------
   function labelFor(f){ const p = f.properties || {}; return p.local || p.name || 'Unknown'; }
   function setMsg(t){ document.getElementById('msg').textContent = t; }
