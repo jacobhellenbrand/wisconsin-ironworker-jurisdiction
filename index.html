@@ -32,7 +32,8 @@
   <div id="legend" class="legend"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/@turf/turf@6"></script>
+<!--   <script src="https://unpkg.com/@turf/turf@6"></script> -->
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
   <script>
   // ---------- config ----------
   const GEOJSON_URL = 'jurisdictions.json';      // your file
@@ -80,10 +81,19 @@
     });
 
     // Legend
-    const legend = document.getElementById('legend');
-    legend.innerHTML = Object.entries(COLORS)
-      .map(([name, color]) => `<div><span class="sw" style="background:${color}"></span>${name}</div>`)
-      .join('');
+    function parseLocal(name){
+  const m = name.match(/Local\s+(\d+)\s*(.*)/i);
+  return { num: m ? parseInt(m[1], 10) : Infinity, suffix: (m && m[2] || '').trim() };
+}
+const legend = document.getElementById('legend');
+const names = Object.keys(COLORS).sort((a, b) => {
+  const A = parseLocal(a), B = parseLocal(b);
+  return A.num === B.num ? A.suffix.localeCompare(B.suffix) : A.num - B.num;
+});
+legend.innerHTML = names
+  .map(n => `<div><span class="sw" style="background:${COLORS[n]}"></span>${n}</div>`)
+  .join('');
+
 
     // Routing button
     document.getElementById('routeBtn').onclick = route;
@@ -111,7 +121,7 @@
   markers.push(L.marker(B).addTo(map).bindPopup('B'));
 
   // Geoapify expects waypoints as "lon,lat|lon,lat"
-  const waypoints = `${A.lng},${A.lat}|${B.lng},${B.lat}`;
+  const waypoints = `${A.lat},${A.lng}|${B.lat},${B.lng}`;
   const url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(waypoints)}&mode=drive&format=geojson&apiKey=${GEOAPIFY_KEY}`;
 
   try {
