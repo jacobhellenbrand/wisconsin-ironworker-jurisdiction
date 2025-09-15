@@ -53,7 +53,6 @@
   (async function init(){
     map = L.map('map', { zoomControl: false }).setView([43.8, -89.8], 7);
     L.control.zoom({ position: 'topright' }).addTo(map);
-    map = L.map('map').setView([43.8,-89.8], 7);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 20, attribution: '&copy; OpenStreetMap'
     }).addTo(map);
