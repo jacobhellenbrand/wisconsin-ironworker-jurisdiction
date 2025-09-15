@@ -1,2 +1,61 @@
-Hello there
-fetch('jurisdictions.json')
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>WI Ironworker Jurisdictions (Leaflet)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    html,body,#map{height:100%;margin:0}
+    .panel{position:absolute;top:10px;left:10px;background:#fff;padding:8px 10px;border-radius:8px;
+           box-shadow:0 2px 8px rgba(0,0,0,.2);z-index:1000;font:14px system-ui,sans-serif}
+    #addr{width:320px;max-width:60vw}
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <input id="addr" placeholder="lat,lng (no geocoder in this no-key demo)"/>
+    <button id="check">Check zone</button>
+    <span id="result" style="margin-left:8px;font-weight:600"></span>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@turf/turf@6"></script>
+  <script>
+  let map, zones, layer;
+
+  async function init(){
+    map = L.map('map').setView([43.8,-89.8], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    zones = await (await fetch('jurisdictions.json')).json();
+
+    layer = L.geoJSON(zones, {
+      style: { color:'#2c3e50', weight:1, fillColor:'#467fd0', fillOpacity:0.15 },
+      onEachFeature: (f, l) => l.on('click', () => {
+        const name = f.properties?.local || f.properties?.name || 'Unknown';
+        document.getElementById('result').textContent = `Zone: ${name}`;
+      })
+    }).addTo(map);
+    map.fitBounds(layer.getBounds());
+
+    document.getElementById('check').onclick = () => {
+      const txt = document.getElementById('addr').value.trim();
+      const m = txt.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
+      if(!m) return alert('Enter as lat,lng (e.g., 43.0731,-89.4012)');
+      const lat = parseFloat(m[1]), lng = parseFloat(m[3]);
+      const pt = turf.point([lng, lat]);
+      const hit = zones.features.find(f => turf.booleanPointInPolygon(pt, f));
+      L.marker([lat,lng]).addTo(map).bindPopup('Point').openPopup();
+      document.getElementById('result').textContent =
+        hit ? `Zone: ${hit.properties.local || hit.properties.name}` : 'Outside all zones';
+      map.setView([lat,lng], Math.max(map.getZoom(), 11));
+    };
+  }
+  init();
+  </script>
+</body>
+</html>
