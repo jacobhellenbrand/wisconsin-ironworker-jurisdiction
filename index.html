@@ -24,7 +24,7 @@
 <body>
   <div class="panel">
     <input id="from" placeholder="From address or lat,lng" />
-    <input id="to"   placeholder="To address or lat,lng" />
+    <input id="to"   placeholder="To address or lat,lng (optional)" />
     <button id="routeBtn">Route</button>
     <span id="msg" style="font-weight:600"></span>
   </div>
@@ -32,7 +32,6 @@
   <div id="legend" class="legend"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!--   <script src="https://unpkg.com/@turf/turf@6"></script> -->
   <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
   <script>
   // ---------- config ----------
@@ -52,6 +51,7 @@
   let map, zones, zoneLayer, routeLayer, markers = [];
 
   (async function init(){
+    // Map & controls
     map = L.map('map', { zoomControl: false }).setView([43.8, -89.8], 7);
     L.control.zoom({ position: 'topright' }).addTo(map);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -68,96 +68,121 @@
       onEachFeature: (f, layer) => {
         layer.on('mouseover', () => layer.setStyle({weight:2, fillOpacity:0.28}));
         layer.on('mouseout',  () => layer.setStyle({weight:1, fillOpacity:0.18}));
-        layer.on('click', e => setMsg(`Zone: ${labelFor(f)}`));
+        layer.on('click', () => setMsg(`Zone: ${labelFor(f)}`));
       }
     }).addTo(map);
     map.fitBounds(zoneLayer.getBounds());
 
     // Click anywhere → which zone?
     map.on('click', e => {
-      const pt = turf.point([e.latlng.lng, e.latlng.lat]);
-      const hit = zones.features.find(f => turf.booleanPointInPolygon(pt, f));
-      setMsg(hit ? `Zone: ${labelFor(hit)}` : 'Outside all zones');
+      const zone = findZoneName(e.latlng.lat, e.latlng.lng);
+      setMsg(zone ? `Zone: ${zone}` : 'Outside all zones');
     });
 
-    // Legend
+    // Legend (sorted by Local number then suffix)
     function parseLocal(name){
-  const m = name.match(/Local\s+(\d+)\s*(.*)/i);
-  return { num: m ? parseInt(m[1], 10) : Infinity, suffix: (m && m[2] || '').trim() };
-}
-const legend = document.getElementById('legend');
-const names = Object.keys(COLORS).sort((a, b) => {
-  const A = parseLocal(a), B = parseLocal(b);
-  return A.num === B.num ? A.suffix.localeCompare(B.suffix) : A.num - B.num;
-});
-legend.innerHTML = names
-  .map(n => `<div><span class="sw" style="background:${COLORS[n]}"></span>${n}</div>`)
-  .join('');
+      const m = name.match(/Local\s+(\d+)\s*(.*)/i);
+      return { num: m ? parseInt(m[1], 10) : Infinity, suffix: (m && m[2] || '').trim() };
+    }
+    const legend = document.getElementById('legend');
+    const names = Object.keys(COLORS).sort((a, b) => {
+      const A = parseLocal(a), B = parseLocal(b);
+      return A.num === B.num ? A.suffix.localeCompare(B.suffix) : A.num - B.num;
+    });
+    legend.innerHTML = names
+      .map(n => `<div><span class="sw" style="background:${COLORS[n]}"></span>${n}</div>`)
+      .join('');
 
-
-    // Routing button
-    document.getElementById('routeBtn').onclick = route;
+    // Button
+    document.getElementById('routeBtn').onclick = checkOrRoute;
   })();
 
+  // ---------- helpers ----------
   function labelFor(f){
     const p = f.properties || {};
     return p.local || p.name || 'Unknown';
   }
   function setMsg(t){ document.getElementById('msg').textContent = t; }
 
-  // ---- routing with Geoapify ----
- async function route(){
-  clearRoute();
-  const a = document.getElementById('from').value.trim();
-  const b = document.getElementById('to').value.trim();
-  if (!a || !b) return setMsg('Enter both From and To');
+  function findZoneName(lat, lng){
+    const pt = turf.point([lng, lat]);
+    const hit = zones.features.find(f => turf.booleanPointInPolygon(pt, f));
+    return hit ? labelFor(hit) : null;
+  }
 
-  const A = await toLatLng(a);
-  const B = await toLatLng(b);
-  if (!A || !B) { setMsg('Could not geocode one of the inputs'); return; }
+  function dropMarker(latlng, tag=null){
+    const zone = findZoneName(latlng.lat, latlng.lng);
+    const text = tag ? `${tag}: ${zone || 'Outside all zones'}` : `Zone: ${zone || 'Outside all zones'}`;
+    const m = L.marker(latlng).addTo(map).bindPopup(text).openPopup();
+    markers.push(m);
+    setMsg(text);
+    return zone || 'Outside all zones';
+  }
 
-  // markers
-  markers.push(L.marker(A).addTo(map).bindPopup('A').openPopup());
-  markers.push(L.marker(B).addTo(map).bindPopup('B'));
+  // ---- routing / single-point check with Geoapify ----
+  async function checkOrRoute(){
+    clearRoute();
+    const aTxt = document.getElementById('from').value.trim();
+    const bTxt = document.getElementById('to').value.trim();
 
-  // Geoapify expects waypoints as "lon,lat|lon,lat"
-  const waypoints = `${A.lat},${A.lng}|${B.lat},${B.lng}`;
-  const url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(waypoints)}&mode=drive&format=geojson&apiKey=${GEOAPIFY_KEY}`;
+    if (!aTxt && !bTxt) { setMsg('Enter at least one address'); return; }
 
-  try {
-    const r = await fetch(url);
-    const gj = await r.json();
-
-    // If Geoapify returns an error object (or anything not FeatureCollection), bail gracefully
-    if (!r.ok || gj?.type !== 'FeatureCollection' || !Array.isArray(gj.features)) {
-      console.error('Routing response:', gj);
-      setMsg('Routing error: ' + (gj?.message || gj?.error || r.status));
+    // Single-address mode
+    if (!!aTxt ^ !!bTxt) {
+      const P = await toLatLng(aTxt || bTxt);
+      if (!P) { setMsg('Could not geocode the input'); return; }
+      dropMarker(P); // popup shows zone name
+      map.setView(P, Math.max(map.getZoom(), 11));
       return;
     }
 
-    routeLayer = L.geoJSON(gj, { style: { color:'#0066ff', weight:4, opacity:0.9 } }).addTo(map);
-    map.fitBounds(routeLayer.getBounds(), { padding:[20,20] });
-    setMsg('Route drawn');
-  } catch (e) {
-    console.error(e);
-    setMsg('Routing error (see console)');
+    // Two-address routing
+    const A = await toLatLng(aTxt);
+    const B = await toLatLng(bTxt);
+    if (!A || !B) { setMsg('Could not geocode one of the inputs'); return; }
+
+    const zoneA = dropMarker(A, 'A');
+    const zoneB = dropMarker(B, 'B');
+
+    // Geoapify expects "lon,lat|lon,lat"
+    const waypoints = `${A.lat},${A.lng}|${B.lat},${B.lng}`;
+    const url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(waypoints)}&mode=drive&format=geojson&apiKey=${GEOAPIFY_KEY}`;
+
+    try {
+      const r = await fetch(url);
+      const gj = await r.json();
+
+      if (!r.ok || gj?.type !== 'FeatureCollection' || !Array.isArray(gj.features)) {
+        console.error('Routing response:', gj);
+        setMsg('Routing error: ' + (gj?.message || gj?.error || r.status));
+        return;
+      }
+
+      routeLayer = L.geoJSON(gj, { style: { color:'#0066ff', weight:4, opacity:0.9 } }).addTo(map);
+      map.fitBounds(routeLayer.getBounds(), { padding:[20,20] });
+      setMsg(`Route drawn · A: ${zoneA} · B: ${zoneB}`);
+    } catch (e) {
+      console.error(e);
+      setMsg('Routing error (see console)');
+    }
   }
-}
 
   async function toLatLng(text){
-    // supports "lat,lng" or address (via Geoapify geocoding)
+    // Accept "lat,lng"
     const m = text.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
-    if(m){ return { lat: parseFloat(m[1]), lng: parseFloat(m[3]) }; }
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[3]) };
 
-    const url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(text)}&limit=1&apiKey=${GEOAPIFY_KEY}`;
-    const r = await fetch(url); if(!r.ok) return null;
+    // Geoapify geocoding, biased to US/WI to avoid odd matches
+    const url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(text)}&limit=1&filter=countrycode:us|statecode:wi&apiKey=${GEOAPIFY_KEY}`;
+    const r = await fetch(url); if (!r.ok) return null;
     const j = await r.json();
-    const feat = j.features?.[0]; if(!feat) return null;
-    return { lat: feat.geometry.coordinates[1], lng: feat.geometry.coordinates[0] }; // [lon,lat]
+    const feat = j.features?.[0]; if (!feat) return null;
+    const [lon, lat] = feat.geometry.coordinates; // GeoJSON order
+    return { lat, lng: lon };
   }
 
   function clearRoute(){
-    if(routeLayer){ map.removeLayer(routeLayer); routeLayer = null; }
+    if (routeLayer){ map.removeLayer(routeLayer); routeLayer = null; }
     markers.forEach(m => map.removeLayer(m)); markers = [];
     setMsg('');
   }
