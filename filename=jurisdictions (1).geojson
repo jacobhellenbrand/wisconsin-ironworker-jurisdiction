@@ -1,0 +1,10 @@
+{"type":"FeatureCollection", "features": [
+{"type":"Feature","geometry":null,"properties":{"local":"Local 498"}},
+{"type":"Feature","geometry":null,"properties":{"local":"Local 383"}},
+{"type":"Feature","geometry":null,"properties":{"local":"Local 8 Southern"}},
+{"type":"Feature","geometry":null,"properties":{"local":"Local 498 Eastern Zone"}},
+{"type":"Feature","geometry":null,"properties":{"local":"Local 8 Northern"}},
+{"type":"Feature","geometry":null,"properties":{"local":"Local 8 Upper Peninsula"}},
+{"type":"Feature","geometry":null,"properties":{"local":"Local 512 A"}},
+{"type":"Feature","geometry":null,"properties":{"local":"Local 512 B"}}
+]}
