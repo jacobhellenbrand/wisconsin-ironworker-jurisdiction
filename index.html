@@ -51,6 +51,8 @@
   let map, zones, zoneLayer, routeLayer, markers = [];
 
   (async function init(){
+    map = L.map('map', { zoomControl: false }).setView([43.8, -89.8], 7);
+    L.control.zoom({ position: 'topright' }).addTo(map);
     map = L.map('map').setView([43.8,-89.8], 7);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 20, attribution: '&copy; OpenStreetMap'
@@ -95,38 +97,43 @@
   function setMsg(t){ document.getElementById('msg').textContent = t; }
 
   // ---- routing with Geoapify ----
-  async function route(){
-    clearRoute();
-    const a = document.getElementById('from').value.trim();
-    const b = document.getElementById('to').value.trim();
-    if(!a || !b) return setMsg('Enter both From and To');
+ async function route(){
+  clearRoute();
+  const a = document.getElementById('from').value.trim();
+  const b = document.getElementById('to').value.trim();
+  if (!a || !b) return setMsg('Enter both From and To');
 
-    const A = await toLatLng(a);
-    const B = await toLatLng(b);
-    if(!A || !B){ setMsg('Could not geocode one of the inputs'); return; }
+  const A = await toLatLng(a);
+  const B = await toLatLng(b);
+  if (!A || !B) { setMsg('Could not geocode one of the inputs'); return; }
 
-    // markers
-    markers.push(L.marker(A).addTo(map).bindPopup('A').openPopup());
-    markers.push(L.marker(B).addTo(map).bindPopup('B'));
+  // markers
+  markers.push(L.marker(A).addTo(map).bindPopup('A').openPopup());
+  markers.push(L.marker(B).addTo(map).bindPopup('B'));
 
-    // Geoapify Routing API
-    // NOTE: Geoapify expects waypoint order "lon,lat|lon,lat"
-    const wp = `${A.lng},${A.lat}|${B.lng},${B.lat}`;
-    const url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(wp)}&mode=drive&apiKey=${GEOAPIFY_KEY}`;
+  // Geoapify expects waypoints as "lon,lat|lon,lat"
+  const waypoints = `${A.lng},${A.lat}|${B.lng},${B.lat}`;
+  const url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(waypoints)}&mode=drive&format=geojson&apiKey=${GEOAPIFY_KEY}`;
 
-    try{
-      const r = await fetch(url);
-      if(!r.ok){ setMsg('Routing failed'); return; }
-      const gj = await r.json();                     // returns GeoJSON FeatureCollection
-      routeLayer = L.geoJSON(gj, {
-        style: { color:'#0066ff', weight:4, opacity:0.9 }
-      }).addTo(map);
-      map.fitBounds(routeLayer.getBounds(), { padding:[20,20] });
-      setMsg('Route drawn');
-    }catch(e){
-      console.error(e); setMsg('Routing error (see console)');
+  try {
+    const r = await fetch(url);
+    const gj = await r.json();
+
+    // If Geoapify returns an error object (or anything not FeatureCollection), bail gracefully
+    if (!r.ok || gj?.type !== 'FeatureCollection' || !Array.isArray(gj.features)) {
+      console.error('Routing response:', gj);
+      setMsg('Routing error: ' + (gj?.message || gj?.error || r.status));
+      return;
     }
+
+    routeLayer = L.geoJSON(gj, { style: { color:'#0066ff', weight:4, opacity:0.9 } }).addTo(map);
+    map.fitBounds(routeLayer.getBounds(), { padding:[20,20] });
+    setMsg('Route drawn');
+  } catch (e) {
+    console.error(e);
+    setMsg('Routing error (see console)');
   }
+}
 
   async function toLatLng(text){
     // supports "lat,lng" or address (via Geoapify geocoding)
