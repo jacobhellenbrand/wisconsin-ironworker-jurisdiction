@@ -36,7 +36,7 @@
   <script>
   // ---------- config ----------
   const GEOJSON_URL = 'jurisdictions.json';      // your file
-  const GEOAPIFY_KEY = 'YOUR_GEOAPIFY_KEY';      // <-- put your key here
+  const GEOAPIFY_KEY = '66dd3a5b023f4dc6bbe5b8dac54b3a00';      // <-- put your key here
   const COLORS = {                               // color per zone (edit names to match your data)
     'Local 498':'#4186f0',
     'Local 383':'#f57c00',
@@ -112,7 +112,7 @@
     // Geoapify Routing API
     // NOTE: Geoapify expects waypoint order "lon,lat|lon,lat"
     const wp = `${A.lng},${A.lat}|${B.lng},${B.lat}`;
-    const url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(wp)}&mode=drive&apiKey=${66dd3a5b023f4dc6bbe5b8dac54b3a00}`;
+    const url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(wp)}&mode=drive&apiKey=${GEOAPIFY_KEY}`;
 
     try{
       const r = await fetch(url);
@@ -133,7 +133,7 @@
     const m = text.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
     if(m){ return { lat: parseFloat(m[1]), lng: parseFloat(m[3]) }; }
 
-    const url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(text)}&limit=1&apiKey=${66dd3a5b023f4dc6bbe5b8dac54b3a00}`;
+    const url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(text)}&limit=1&apiKey=${GEOAPIFY_KEY}`;
     const r = await fetch(url); if(!r.ok) return null;
     const j = await r.json();
     const feat = j.features?.[0]; if(!feat) return null;
