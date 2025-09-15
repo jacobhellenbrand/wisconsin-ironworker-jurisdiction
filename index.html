@@ -168,18 +168,22 @@
   }
 
   async function toLatLng(text){
-    // Accept "lat,lng"
-    const m = text.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
-    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[3]) };
+  // Accept "lat,lng"
+  const m = text.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[3]) };
 
-    // Geoapify geocoding, biased to US/WI to avoid odd matches
-    const url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(text)}&limit=1&filter=countrycode:us|statecode:wi&apiKey=${GEOAPIFY_KEY}`;
-    const r = await fetch(url); if (!r.ok) return null;
-    const j = await r.json();
-    const feat = j.features?.[0]; if (!feat) return null;
-    const [lon, lat] = feat.geometry.coordinates; // GeoJSON order
-    return { lat, lng: lon };
-  }
+  // Geoapify geocoding — restrict to US + Wisconsin (ISO 3166-2 state code)
+  const url = `https://api.geoapify.com/v1/geocode/search?` +
+              `text=${encodeURIComponent(text)}&limit=1&filter=countrycode:us|statecode:us-wi&apiKey=${GEOAPIFY_KEY}`;
+
+  const r = await fetch(url); if (!r.ok) return null;
+  const j = await r.json();
+  const feat = j.features?.[0]; if (!feat) return null;
+
+  const [lon, lat] = feat.geometry.coordinates;  // GeoJSON order
+  return { lat, lng: lon };
+}
+
 
   function clearRoute(){
     if (routeLayer){ map.removeLayer(routeLayer); routeLayer = null; }
