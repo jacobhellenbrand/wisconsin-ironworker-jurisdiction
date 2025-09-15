@@ -35,9 +35,12 @@
   <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
   <script>
   // ---------- config ----------
-  const GEOJSON_URL = 'jurisdictions.json';      // your file
-  const GEOAPIFY_KEY = '66dd3a5b023f4dc6bbe5b8dac54b3a00';      // <-- put your key here
-  const COLORS = {                               // color per zone (edit names to match your data)
+  const GEOJSON_URL = 'jurisdictions.json';
+  const GEOAPIFY_KEY = '66dd3a5b023f4dc6bbe5b8dac54b3a00';  // <-- put your key here
+  // Bounding box filter for WI + UP (minLon,minLat,maxLon,maxLat)
+  const GEOCODE_RECT = [-92.9, 41.5, -83.3, 48.6];
+
+  const COLORS = {
     'Local 498':'#4186f0',
     'Local 383':'#f57c00',
     'Local 8 Southern':'#795548',
@@ -51,14 +54,13 @@
   let map, zones, zoneLayer, routeLayer, markers = [];
 
   (async function init(){
-    // Map & controls
     map = L.map('map', { zoomControl: false }).setView([43.8, -89.8], 7);
     L.control.zoom({ position: 'topright' }).addTo(map);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 20, attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
-    // Load and draw zones
+    // Load + draw zones
     zones = await (await fetch(GEOJSON_URL)).json();
     zoneLayer = L.geoJSON(zones, {
       style: f => ({
@@ -73,13 +75,13 @@
     }).addTo(map);
     map.fitBounds(zoneLayer.getBounds());
 
-    // Click anywhere → which zone?
+    // Click anywhere => which zone?
     map.on('click', e => {
       const zone = findZoneName(e.latlng.lat, e.latlng.lng);
       setMsg(zone ? `Zone: ${zone}` : 'Outside all zones');
     });
 
-    // Legend (sorted by Local number then suffix)
+    // Legend (sorted: Local # then suffix)
     function parseLocal(name){
       const m = name.match(/Local\s+(\d+)\s*(.*)/i);
       return { num: m ? parseInt(m[1], 10) : Infinity, suffix: (m && m[2] || '').trim() };
@@ -93,15 +95,11 @@
       .map(n => `<div><span class="sw" style="background:${COLORS[n]}"></span>${n}</div>`)
       .join('');
 
-    // Button
     document.getElementById('routeBtn').onclick = checkOrRoute;
   })();
 
   // ---------- helpers ----------
-  function labelFor(f){
-    const p = f.properties || {};
-    return p.local || p.name || 'Unknown';
-  }
+  function labelFor(f){ const p = f.properties || {}; return p.local || p.name || 'Unknown'; }
   function setMsg(t){ document.getElementById('msg').textContent = t; }
 
   function findZoneName(lat, lng){
@@ -119,7 +117,7 @@
     return zone || 'Outside all zones';
   }
 
-  // ---- routing / single-point check with Geoapify ----
+  // ---- check single point OR route with two points ----
   async function checkOrRoute(){
     clearRoute();
     const aTxt = document.getElementById('from').value.trim();
@@ -131,7 +129,7 @@
     if (!!aTxt ^ !!bTxt) {
       const P = await toLatLng(aTxt || bTxt);
       if (!P) { setMsg('Could not geocode the input'); return; }
-      dropMarker(P); // popup shows zone name
+      dropMarker(P);
       map.setView(P, Math.max(map.getZoom(), 11));
       return;
     }
@@ -144,46 +142,49 @@
     const zoneA = dropMarker(A, 'A');
     const zoneB = dropMarker(B, 'B');
 
-    // Geoapify expects "lon,lat|lon,lat"
-    const waypoints = `${A.lat},${A.lng}|${B.lat},${B.lng}`;
-    const url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(waypoints)}&mode=drive&format=geojson&apiKey=${GEOAPIFY_KEY}`;
+    // Try lat,lon first (your working setup), then auto-fallback to lon,lat if needed
+    let waypoints = `${A.lat},${A.lng}|${B.lat},${B.lng}`;
+    let url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(waypoints)}&mode=drive&format=geojson&apiKey=${GEOAPIFY_KEY}`;
 
-    try {
-      const r = await fetch(url);
-      const gj = await r.json();
-
-      if (!r.ok || gj?.type !== 'FeatureCollection' || !Array.isArray(gj.features)) {
-        console.error('Routing response:', gj);
-        setMsg('Routing error: ' + (gj?.message || gj?.error || r.status));
-        return;
-      }
-
-      routeLayer = L.geoJSON(gj, { style: { color:'#0066ff', weight:4, opacity:0.9 } }).addTo(map);
-      map.fitBounds(routeLayer.getBounds(), { padding:[20,20] });
-      setMsg(`Route drawn · A: ${zoneA} · B: ${zoneB}`);
-    } catch (e) {
-      console.error(e);
-      setMsg('Routing error (see console)');
+    let gj = await fetch(url).then(r => r.json().then(j => ({ok: r.ok, j})));
+    if (!gj.ok || gj.j.type !== 'FeatureCollection') {
+      // fallback in case the API expects lon,lat
+      waypoints = `${A.lng},${A.lat}|${B.lng},${B.lat}`;
+      url = `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(waypoints)}&mode=drive&format=geojson&apiKey=${GEOAPIFY_KEY}`;
+      gj = await fetch(url).then(r => r.json().then(j => ({ok: r.ok, j})));
     }
+
+    if (!gj.ok || gj.j.type !== 'FeatureCollection' || !Array.isArray(gj.j.features)) {
+      console.error('Routing response:', gj.j);
+      setMsg('Routing error: ' + (gj.j?.message || gj.j?.error || 'unknown'));
+      return;
+    }
+
+    routeLayer = L.geoJSON(gj.j, { style: { color:'#0066ff', weight:4, opacity:0.9 } }).addTo(map);
+    map.fitBounds(routeLayer.getBounds(), { padding:[20,20] });
+    setMsg(`Route drawn · A: ${zoneA} · B: ${zoneB}`);
   }
 
+  // Geocode: accepts "lat,lng" or address; uses rect filter with fallback
   async function toLatLng(text){
-  // Accept "lat,lng"
-  const m = text.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
-  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[3]) };
+    const m = text.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[3]) };
 
-  // Geoapify geocoding — restrict to US + Wisconsin (ISO 3166-2 state code)
-  const url = `https://api.geoapify.com/v1/geocode/search?` +
-              `text=${encodeURIComponent(text)}&limit=1&filter=countrycode:us|statecode:us-wi&apiKey=${GEOAPIFY_KEY}`;
+    const base = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(text)}&limit=1&apiKey=${GEOAPIFY_KEY}`;
+    const withRect = `${base}&filter=rect:${GEOCODE_RECT.join(',')}`;
 
-  const r = await fetch(url); if (!r.ok) return null;
-  const j = await r.json();
-  const feat = j.features?.[0]; if (!feat) return null;
-
-  const [lon, lat] = feat.geometry.coordinates;  // GeoJSON order
-  return { lat, lng: lon };
-}
-
+    // Try with rect filter first
+    let r = await fetch(withRect);
+    let j = await r.json().catch(()=>null);
+    if (!r.ok || !j?.features?.length) {
+      // Fallback: no filter (avoids 400s from strict filters)
+      r = await fetch(base);
+      j = await r.json().catch(()=>null);
+      if (!r.ok || !j?.features?.length) return null;
+    }
+    const [lon, lat] = j.features[0].geometry.coordinates;
+    return { lat, lng: lon };
+  }
 
   function clearRoute(){
     if (routeLayer){ map.removeLayer(routeLayer); routeLayer = null; }
